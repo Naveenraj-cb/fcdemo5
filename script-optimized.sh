@@ -253,20 +253,20 @@ create_vm_config() {
     
     # Debug: Check if vm_dir exists
     if [[ ! -d "$vm_dir" ]]; then
-        log_error "VM directory does not exist: $vm_dir"
+        log_error "VM directory does not exist: $vm_dir" >&2
         return 1
     fi
     
     # Copy rootfs only if it doesn't exist or is different
     if [[ ! -f "$vm_rootfs" ]] || [[ "$DEFAULT_ROOTFS_PATH" -nt "$vm_rootfs" ]]; then
-        log_info "Creating rootfs for VM $vm_id..."
+        log_info "Creating rootfs for VM $vm_id..." >&2
         cp "$DEFAULT_ROOTFS_PATH" "$vm_rootfs"
     else
-        log_skip "Rootfs for VM $vm_id already exists"
+        log_skip "Rootfs for VM $vm_id already exists" >&2
     fi
     
     # Create VM configuration
-    log_info "Creating config file: $config_path"
+    log_info "Creating config file: $config_path" >&2
     cat > "$config_path" << EOF
 {
   "boot-source": {
@@ -297,17 +297,17 @@ EOF
     
     # Debug: Verify config file was created
     if [[ ! -f "$config_path" ]]; then
-        log_error "Failed to create config file: $config_path"
+        log_error "Failed to create config file: $config_path" >&2
         return 1
     fi
     
     # Debug: Check config file content
     if [[ ! -s "$config_path" ]]; then
-        log_error "Config file is empty: $config_path"
+        log_error "Config file is empty: $config_path" >&2
         return 1
     fi
     
-    log_info "Config created: $config_path ($(wc -l < "$config_path") lines)"
+    log_info "Config created: $config_path ($(wc -l < "$config_path") lines)" >&2
     echo "$config_path"
 }
 
