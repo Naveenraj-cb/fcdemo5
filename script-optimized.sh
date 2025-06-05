@@ -4,7 +4,7 @@
 # This script sets up and launches multiple Firecracker microVMs
 # Skips downloads if valid files already exist
 
-set -e
+# Note: Don't use set -e to allow VM startup failures without stopping the entire script
 
 # Configuration
 DEFAULT_VM_COUNT=3
@@ -325,9 +325,22 @@ setup_vm_network() {
     log_info "Setting up network for VM $vm_id..."
     
     # Create TAP interface
-    sudo ip tuntap add dev "$tap_name" mode tap user "$(whoami)"
-    sudo ip addr add "172.16.0.1/24" dev "$tap_name"
-    sudo ip link set dev "$tap_name" up
+    if ! sudo ip tuntap add dev "$tap_name" mode tap user "$(whoami)"; then
+        log_error "Failed to create TAP interface $tap_name" >&2
+        return 1
+    fi
+    
+    # Give each VM a unique IP range: 172.16.{vm_id}.1/24
+    local vm_ip="172.16.$vm_id.1/24"
+    if ! sudo ip addr add "$vm_ip" dev "$tap_name"; then
+        log_error "Failed to assign IP $vm_ip to $tap_name" >&2
+        return 1
+    fi
+    
+    if ! sudo ip link set dev "$tap_name" up; then
+        log_error "Failed to bring up $tap_name" >&2
+        return 1
+    fi
     
     # Enable IP forwarding (only if not already enabled)
     if [[ $(cat /proc/sys/net/ipv4/ip_forward) != "1" ]]; then
@@ -343,6 +356,8 @@ setup_vm_network() {
         sudo iptables -A FORWARD -i "$tap_name" -j ACCEPT
         sudo iptables -A FORWARD -o "$tap_name" -j ACCEPT
     fi
+    
+    return 0
 }
 
 # Start a single VM (optimized with better error handling)
@@ -374,7 +389,10 @@ start_vm() {
     log_info "Using config: $config_path"
     
     # Setup networking
-    setup_vm_network $vm_id
+    if ! setup_vm_network $vm_id; then
+        log_error "Failed to setup network for VM $vm_id, but continuing..." >&2
+        # Continue anyway - some VMs might work without networking
+    fi
     
     # Remove existing socket if it exists
     rm -f "$socket_path"
@@ -414,23 +432,29 @@ start_all_vms() {
     local success_count=0
     
     for i in $(seq 1 $VM_COUNT); do
+        log_info "Attempting to start VM $i of $VM_COUNT..."
         if start_vm $i; then
             ((success_count++))
+            log_info "✅ VM $i started successfully"
         else
-            log_error "Failed to start VM $i"
+            log_error "❌ Failed to start VM $i - continuing with next VM"
         fi
         sleep 1
     done
     
-    log_info "Successfully started $success_count out of $VM_COUNT VMs"
+    log_info "VM startup completed: $success_count out of $VM_COUNT VMs started"
     
     if [[ $success_count -eq $VM_COUNT ]]; then
         log_info "🎉 All VMs started successfully!"
         log_info "📁 VM logs: logs/ directory"
         log_info "⚙️  VM configs: vms/ directory"
         log_info "🔌 API sockets: sockets/ directory"
+    elif [[ $success_count -gt 0 ]]; then
+        log_warn "⚠️  Only $success_count out of $VM_COUNT VMs started successfully"
+        log_info "Check individual VM logs in logs/ directory for details"
     else
-        log_warn "Some VMs failed to start. Check logs for details."
+        log_error "❌ No VMs started successfully"
+        log_info "Check logs for error details and run './script-optimized.sh clean' to start fresh"
     fi
 }
 
