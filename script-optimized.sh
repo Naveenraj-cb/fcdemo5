@@ -507,42 +507,45 @@ clean_assets() {
     log_info "Clean completed - all files removed"
 }
 
-# Usage information
-usage() {
-    echo "🔥 Firecracker Multi-VM Manager"
-    echo "Usage: $0 [VM_COUNT] [COMMAND]"
-    echo ""
-    echo "Commands:"
-    echo "  start    - Start VMs (default)"
-    echo "  stop     - Stop all VMs"
-    echo "  status   - Check VM status"
-    echo "  restart  - Restart all VMs"
-    echo "  clean    - Clean all assets and start fresh"
-    echo ""
-    echo "Examples:"
-    echo "  $0           # Start 3 VMs (default)"
-    echo "  $0 5         # Start 5 VMs"
-    echo "  $0 3 stop    # Stop all VMs"
-    echo "  $0 status    # Check status"
-    echo "  $0 clean     # Remove all downloaded files"
-}
-
-# Main execution
+# Main execution function
 main() {
     local command="start"
+    local vm_count=$DEFAULT_VM_COUNT
     
-    # Parse arguments
-    if [[ $# -eq 1 ]] && [[ "$1" =~ ^[0-9]+$ ]]; then
-        VM_COUNT=$1
-    elif [[ $# -eq 1 ]] && [[ "$1" != "start" ]]; then
-        command=$1
+    # Parse arguments properly
+    if [[ $# -eq 0 ]]; then
+        # No arguments: use defaults
+        VM_COUNT=$vm_count
+        command="start"
+    elif [[ $# -eq 1 ]]; then
+        # One argument: could be number or command
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            # It's a number - use as VM count
+            VM_COUNT=$1
+            command="start"
+        else
+            # It's a command
+            VM_COUNT=$vm_count
+            command=$1
+        fi
     elif [[ $# -eq 2 ]]; then
-        VM_COUNT=$1
-        command=$2
-    elif [[ $# -gt 2 ]]; then
+        # Two arguments: first should be number, second should be command
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            VM_COUNT=$1
+            command=$2
+        else
+            log_error "When using two arguments, first must be a number (VM count)"
+            usage
+            exit 1
+        fi
+    else
+        # Too many arguments
         usage
         exit 1
     fi
+    
+    # Debug output
+    log_info "Parsed arguments - VM_COUNT: $VM_COUNT, Command: $command" >&2
     
     # Handle commands
     case $command in
@@ -556,15 +559,18 @@ main() {
             start_all_vms
             ;;
         "stop")
+            log_info "Stopping all VMs..."
             stop_all_vms
             ;;
         "status")
+            log_info "VM Status Report:"
+            echo "=================================="
             check_vm_status
             ;;
         "restart")
+            log_info "Restarting VMs..."
             stop_all_vms
             sleep 2
-            echo "🔄 Restarting VMs..."
             check_root
             check_prerequisites
             setup_directories
@@ -572,6 +578,7 @@ main() {
             start_all_vms
             ;;
         "clean")
+            log_info "Cleaning up..."
             clean_assets
             ;;
         "help"|"-h"|"--help")
@@ -583,6 +590,32 @@ main() {
             exit 1
             ;;
     esac
+}
+
+# Usage information
+usage() {
+    echo "🔥 Firecracker Multi-VM Demo (Optimized)"
+    echo "========================================"
+    echo ""
+    echo "Usage: $0 [VM_COUNT] [COMMAND]"
+    echo ""
+    echo "Commands:"
+    echo "  start    - Start VMs (default)"
+    echo "  stop     - Stop all VMs"
+    echo "  status   - Check VM status"  
+    echo "  restart  - Restart all VMs"
+    echo "  clean    - Clean all assets and start fresh"
+    echo "  help     - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  $0                # Start 3 VMs (default)"
+    echo "  $0 5              # Start 5 VMs"
+    echo "  $0 status         # Check VM status"
+    echo "  $0 stop           # Stop all VMs"
+    echo "  $0 3 start        # Start 3 VMs explicitly"
+    echo "  $0 5 stop         # Stop VMs (VM count ignored for stop)"
+    echo "  $0 clean          # Remove all downloaded files"
+    echo ""
 }
 
 # Trap to cleanup on exit
