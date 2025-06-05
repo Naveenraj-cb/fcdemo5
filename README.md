@@ -382,3 +382,129 @@ Educational use. Firecracker is Apache 2.0 licensed.
 ---
 
 **Next**: Once Part 1 is working, we'll add Deno applications to each VM in Part 2!
+
+## Part 2: Deno Applications in VMs 🦕
+
+### What's Included
+
+- **Custom VM Images**: VMs with Deno runtime pre-installed
+- **HTTP API Server**: Each VM runs a Deno web server with RESTful APIs
+- **Inter-VM Communication**: VMs can communicate with each other via HTTP
+- **Distributed Features**: Health monitoring, data storage, broadcasting
+- **Load Balancing**: Round-robin request distribution simulation
+- **Fault Tolerance**: Cluster continues operating when individual VMs fail
+
+### Quick Start with Deno VMs
+
+```bash
+# 1. Build Deno-enabled VM images (one-time setup)
+chmod +x build-deno-vms.sh
+./build-deno-vms.sh
+
+# 2. Start Deno-enabled VMs
+./script-optimized.sh deno
+
+# 3. Run interactive demo
+chmod +x demo-interactive.sh
+./demo-interactive.sh
+
+# 4. Test manually
+curl http://172.16.1.2:8000/health
+curl http://172.16.2.2:8000/cluster-status
+```
+
+### Deno VM Features
+
+Each VM runs a Deno HTTP server on port 8000 with these endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | VM health check and system info |
+| `/info` | GET | Detailed VM information |
+| `/storage` | GET | List all stored data |
+| `/storage/{key}` | POST/GET/DELETE | Store/retrieve/delete data |
+| `/ping/{vm_id}` | GET | Ping another VM |
+| `/broadcast` | POST | Send message to all VMs |
+| `/cluster-status` | GET | Check entire cluster health |
+
+### VM Network Configuration
+
+- **VM 1**: `172.16.1.2:8000` (accessible via `tap1` interface)
+- **VM 2**: `172.16.2.2:8000` (accessible via `tap2` interface)  
+- **VM 3**: `172.16.3.2:8000` (accessible via `tap3` interface)
+
+### Example API Usage
+
+```bash
+# Check VM health
+curl http://172.16.1.2:8000/health
+
+# Store data on VM 1
+curl -X POST http://172.16.1.2:8000/storage/user \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "role": "developer"}'
+
+# Retrieve data from VM 1
+curl http://172.16.1.2:8000/storage/user
+
+# VM 1 ping VM 2
+curl http://172.16.1.2:8000/ping/vm-2
+
+# Broadcast message from VM 1 to all VMs
+curl -X POST http://172.16.1.2:8000/broadcast \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello from VM 1!"}'
+
+# Check cluster health from any VM
+curl http://172.16.2.2:8000/cluster-status
+```
+
+### Architecture Overview
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    VM 1     │    │    VM 2     │    │    VM 3     │
+│ Deno Server │◄──►│ Deno Server │◄──►│ Deno Server │
+│172.16.1.2:8000   │172.16.2.2:8000   │172.16.3.2:8000
+└─────────────┘    └─────────────┘    └─────────────┘
+       ▲                   ▲                   ▲
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌─────────────────────────────────────────────────────┐
+│              Host Network Bridge                    │
+│                 (IP Forwarding)                    │ 
+└─────────────────────────────────────────────────────┘
+```
+
+### Troubleshooting Deno VMs
+
+```bash
+# Check VM logs
+tail -f logs/firecracker-1.log
+
+# Test VM network connectivity
+ping 172.16.1.2
+
+# Check if Deno services are running
+curl --connect-timeout 5 http://172.16.1.2:8000/health
+
+# Debug VM internals (if needed)
+# Note: VMs don't have SSH by default, check logs instead
+
+# Rebuild VMs if needed
+./script-optimized.sh stop
+./script-optimized.sh clean
+./build-deno-vms.sh
+./script-optimized.sh deno
+```
+
+### Updated Script Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `start` | Start basic VMs | `./script-optimized.sh 3` |
+| `deno` | Start Deno-enabled VMs | `./script-optimized.sh deno` |
+| `stop` | Stop all VMs | `./script-optimized.sh stop` |
+| `status` | Check VM status | `./script-optimized.sh status` |
+| `restart` | Restart VMs | `./script-optimized.sh restart` |
+| `clean` | Clean all files | `./script-optimized.sh clean` |

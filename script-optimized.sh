@@ -10,9 +10,11 @@
 DEFAULT_VM_COUNT=3
 DEFAULT_KERNEL_PATH="./vmlinux"
 DEFAULT_ROOTFS_PATH="./rootfs.ext4"
+DENO_ROOTFS_PATH="./rootfs-deno.ext4"
 VM_COUNT=${1:-$DEFAULT_VM_COUNT}
 BASE_PORT=8080
 FIRECRACKER_VERSION="v1.4.1"
+USE_DENO_VMS=false  # Set to true to use Deno-enabled VMs
 
 # Colors for output
 RED='\033[0;31m'
@@ -250,6 +252,13 @@ create_vm_config() {
     local vm_dir="vms/vm-$vm_id"
     local config_path="$vm_dir/config.json"
     local vm_rootfs="$vm_dir/rootfs.ext4"
+    local source_rootfs="$DEFAULT_ROOTFS_PATH"
+    
+    # Use Deno rootfs if available and enabled
+    if [[ "$USE_DENO_VMS" == "true" ]] && [[ -f "$DENO_ROOTFS_PATH" ]]; then
+        source_rootfs="$DENO_ROOTFS_PATH"
+        log_info "Using Deno-enabled rootfs for VM $vm_id" >&2
+    fi
     
     # Debug: Check if vm_dir exists
     if [[ ! -d "$vm_dir" ]]; then
@@ -258,20 +267,30 @@ create_vm_config() {
     fi
     
     # Copy rootfs only if it doesn't exist or is different
-    if [[ ! -f "$vm_rootfs" ]] || [[ "$DEFAULT_ROOTFS_PATH" -nt "$vm_rootfs" ]]; then
+    if [[ ! -f "$vm_rootfs" ]] || [[ "$source_rootfs" -nt "$vm_rootfs" ]]; then
         log_info "Creating rootfs for VM $vm_id..." >&2
-        cp "$DEFAULT_ROOTFS_PATH" "$vm_rootfs"
+        cp "$source_rootfs" "$vm_rootfs"
     else
         log_skip "Rootfs for VM $vm_id already exists" >&2
     fi
     
     # Create VM configuration
     log_info "Creating config file: $config_path" >&2
+    
+    local boot_args="console=ttyS0 reboot=k panic=1 pci=off"
+    local mem_size=128
+    
+    # Use more memory and different boot args for Deno VMs
+    if [[ "$USE_DENO_VMS" == "true" ]]; then
+        boot_args="console=ttyS0 reboot=k panic=1 pci=off init=/sbin/init"
+        mem_size=256
+    fi
+    
     cat > "$config_path" << EOF
 {
   "boot-source": {
     "kernel_image_path": "$(pwd)/$DEFAULT_KERNEL_PATH",
-    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+    "boot_args": "$boot_args"
   },
   "drives": [
     {
@@ -283,7 +302,7 @@ create_vm_config() {
   ],
   "machine-config": {
     "vcpu_count": 1,
-    "mem_size_mib": 128
+    "mem_size_mib": $mem_size
   },
   "network-interfaces": [
     {
@@ -307,7 +326,7 @@ EOF
         return 1
     fi
     
-    log_info "Config created: $config_path ($(wc -l < "$config_path") lines)" >&2
+    log_info "Config created: $config_path ($(wc -l < "$config_path") lines, ${mem_size}MB RAM)" >&2
     echo "$config_path"
 }
 
@@ -629,6 +648,17 @@ main() {
         "clean")
             clean_assets
             ;;
+        "deno")
+            # Enable Deno VMs for next start
+            USE_DENO_VMS=true
+            echo "🦕 Enabling Deno VMs..."
+            echo "=============================="
+            check_root
+            check_prerequisites
+            setup_directories
+            download_assets
+            start_all_vms
+            ;;
         "help"|"-h"|"--help")
             usage
             ;;
@@ -652,6 +682,7 @@ usage() {
     echo "  stop     - Stop all VMs"
     echo "  status   - Check VM status"  
     echo "  restart  - Restart all VMs"
+    echo "  deno     - Start Deno-enabled VMs"
     echo "  clean    - Clean all assets and start fresh"
     echo "  help     - Show this help"
     echo ""
