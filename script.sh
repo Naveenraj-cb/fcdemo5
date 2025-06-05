@@ -139,14 +139,82 @@ download_assets() {
     
     if [[ ! -f "$DEFAULT_KERNEL_PATH" ]]; then
         log_info "Downloading kernel..."
-        wget -O "$DEFAULT_KERNEL_PATH" \
-            https://github.com/firecracker-microvm/firecracker-demo/releases/download/v0.1/vmlinux
+        
+        # Try multiple kernel sources in order of preference
+        local kernel_urls=(
+            "https://github.com/firecracker-microvm/firecracker-demo/releases/download/v0.1/vmlinux"
+            "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
+        )
+        
+        local kernel_downloaded=false
+        for url in "${kernel_urls[@]}"; do
+            log_info "Trying kernel from: $url"
+            if wget -O "$DEFAULT_KERNEL_PATH.tmp" "$url"; then
+                # Verify the downloaded kernel
+                if [[ -f "$DEFAULT_KERNEL_PATH.tmp" ]] && [[ -s "$DEFAULT_KERNEL_PATH.tmp" ]]; then
+                    # Check if it's a valid ELF file
+                    if file "$DEFAULT_KERNEL_PATH.tmp" | grep -q "ELF"; then
+                        mv "$DEFAULT_KERNEL_PATH.tmp" "$DEFAULT_KERNEL_PATH"
+                        kernel_downloaded=true
+                        log_info "Kernel downloaded and verified from: $url"
+                        break
+                    else
+                        log_warn "Downloaded file is not a valid ELF file: $(file "$DEFAULT_KERNEL_PATH.tmp")"
+                        rm -f "$DEFAULT_KERNEL_PATH.tmp"
+                    fi
+                else
+                    log_warn "Failed to download kernel from: $url"
+                    rm -f "$DEFAULT_KERNEL_PATH.tmp"
+                fi
+            else
+                log_warn "Download failed for: $url"
+                rm -f "$DEFAULT_KERNEL_PATH.tmp"
+            fi
+        done
+        
+        if [[ "$kernel_downloaded" != "true" ]]; then
+            log_error "Failed to download a valid kernel from any source"
+            exit 1
+        fi
+    else
+        log_info "Kernel already exists, verifying..."
+        if ! file "$DEFAULT_KERNEL_PATH" | grep -q "ELF"; then
+            log_warn "Existing kernel file appears corrupted, re-downloading..."
+            rm -f "$DEFAULT_KERNEL_PATH"
+            download_assets
+            return
+        fi
+        log_info "Existing kernel verified"
     fi
     
     if [[ ! -f "$DEFAULT_ROOTFS_PATH" ]]; then
         log_info "Downloading rootfs..."
         wget -O "$DEFAULT_ROOTFS_PATH" \
-            https://github.com/firecracker-microvm/firecracker-demo/releases/download/v0.1/rootfs.ext4
+            https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/rootfs/bionic.rootfs.ext4
+        
+        # Verify the downloaded rootfs
+        if [[ ! -f "$DEFAULT_ROOTFS_PATH" ]] || [[ ! -s "$DEFAULT_ROOTFS_PATH" ]]; then
+            log_error "Failed to download rootfs or file is empty"
+            exit 1
+        fi
+        
+        # Check if it's a valid ext4 filesystem
+        if ! file "$DEFAULT_ROOTFS_PATH" | grep -q "ext.*filesystem"; then
+            log_error "Downloaded rootfs is not a valid ext4 filesystem"
+            log_info "File type: $(file "$DEFAULT_ROOTFS_PATH")"
+            exit 1
+        fi
+        
+        log_info "Rootfs downloaded and verified successfully"
+    else
+        log_info "Rootfs already exists, verifying..."
+        if ! file "$DEFAULT_ROOTFS_PATH" | grep -q "ext.*filesystem"; then
+            log_warn "Existing rootfs file appears corrupted, re-downloading..."
+            rm -f "$DEFAULT_ROOTFS_PATH"
+            download_assets
+            return
+        fi
+        log_info "Existing rootfs verified"
     fi
     
     log_info "Assets check completed"
@@ -224,6 +292,11 @@ start_vm() {
     
     log_info "Starting VM $vm_id..."
     
+    # Debug: Check kernel file before starting
+    log_info "Kernel file: $DEFAULT_KERNEL_PATH"
+    log_info "Kernel size: $(stat -c%s "$DEFAULT_KERNEL_PATH" 2>/dev/null || echo "File not found") bytes"
+    log_info "Kernel type: $(file "$DEFAULT_KERNEL_PATH" 2>/dev/null || echo "Cannot determine file type")"
+    
     # Setup networking
     setup_vm_network $vm_id
     
@@ -240,6 +313,7 @@ start_vm() {
     # Check if firecracker is still running
     if ! kill -0 $fc_pid 2>/dev/null; then
         log_error "Failed to start VM $vm_id"
+        log_error "Check the detailed log below:"
         cat "$log_path"
         return 1
     fi
@@ -337,6 +411,13 @@ check_vm_status() {
     done
 }
 
+# Clean assets and directories
+clean_assets() {
+    log_info "Cleaning assets and directories..."
+    rm -rf vms/ logs/ sockets/ vmlinux rootfs.ext4 bin/
+    log_info "Clean completed"
+}
+
 # Usage information
 usage() {
     echo "Usage: $0 [VM_COUNT] [COMMAND]"
@@ -346,12 +427,14 @@ usage() {
     echo "  stop     - Stop all VMs"
     echo "  status   - Check VM status"
     echo "  restart  - Restart all VMs"
+    echo "  clean    - Clean all assets and start fresh"
     echo ""
     echo "Examples:"
     echo "  $0           # Start 3 VMs (default)"
     echo "  $0 5         # Start 5 VMs"
     echo "  $0 3 stop    # Stop all VMs"
     echo "  $0 status    # Check status"
+    echo "  $0 clean     # Remove all downloaded files"
 }
 
 # Main execution
@@ -393,6 +476,9 @@ main() {
             check_prerequisites
             setup_directories
             start_all_vms
+            ;;
+        "clean")
+            clean_assets
             ;;
         "help"|"-h"|"--help")
             usage

@@ -1,206 +1,337 @@
 # Firecracker Multi-VM Demo
 
-This project demonstrates how to set up and run multiple Firecracker microVMs on Ubuntu. Firecracker is an open-source virtualization technology that creates lightweight virtual machines (microVMs) in milliseconds.
+This project demonstrates how to set up and run multiple Firecracker microVMs on Ubuntu. This is Part 1 of a 3-part demo series that will eventually include Deno applications and HTTP communication.
 
 ## What is Firecracker?
 
-Firecracker is a Virtual Machine Monitor (VMM) that uses the Linux Kernel-based Virtual Machine (KVM) to create and manage microVMs. It was developed by AWS and is used to power AWS Lambda and AWS Fargate.
+Firecracker is an open-source Virtual Machine Monitor (VMM) that uses the Linux Kernel-based Virtual Machine (KVM) to create and manage lightweight microVMs. It was developed by AWS and powers AWS Lambda and AWS Fargate.
 
-Key features:
-- **Fast startup**: VMs boot in under 150ms
-- **Lightweight**: Minimal memory overhead (~5MB per VM)
-- **Secure**: Strong isolation between VMs
-- **Simple**: RESTful API for VM management
+### Key Features:
+- **Lightning fast**: VMs boot in under 150ms
+- **Lightweight**: ~5MB memory overhead per VM
+- **Secure**: Strong workload isolation
+- **Simple**: RESTful API for management
+- **Scalable**: Thousands of VMs per host
 
 ## Prerequisites
 
 ### System Requirements
-- Ubuntu 18.04+ (64-bit)
-- CPU with virtualization support (Intel VT-x or AMD-V)
-- At least 2GB RAM
-- Virtualization enabled in BIOS
+- **OS**: Ubuntu 18.04+ (64-bit) or compatible Linux distribution
+- **CPU**: Intel VT-x or AMD-V virtualization support
+- **Memory**: At least 2GB RAM (4GB+ recommended)
+- **Storage**: 1GB free space for VM images
+- **Virtualization**: Must be enabled in BIOS/UEFI
 
-### Software Requirements
-- KVM support
-- curl, wget, jq (will be installed automatically if missing)
+### Verification Commands
 
-## Setup Instructions
-
-### 1. Check System Compatibility
-
-First, verify that your system supports KVM:
-
+Check CPU virtualization support:
 ```bash
-# Check if your CPU supports virtualization
+# Should return > 0
 egrep -c '(vmx|svm)' /proc/cpuinfo
-# Should return a number > 0
 
-# Check if KVM modules are available
-lsmod | grep kvm
-# Should show kvm_intel or kvm_amd
+# Check virtualization flags
+lscpu | grep Virtualization
+```
 
-# If KVM modules are not loaded, load them:
-sudo modprobe kvm_intel  # For Intel CPUs
+Check KVM availability:
+```bash
+# Should show kvm device
+ls -la /dev/kvm
+
+# Load KVM modules if needed
+sudo modprobe kvm_intel  # Intel CPUs
 # OR
-sudo modprobe kvm_amd    # For AMD CPUs
+sudo modprobe kvm_amd    # AMD CPUs
+
+# Verify modules are loaded
+lsmod | grep kvm
 ```
 
-### 2. Set User Permissions
+## Quick Start
 
-Add your user to the kvm group:
-
+### 1. Setup User Permissions
 ```bash
+# Add user to kvm group (required for KVM access)
 sudo usermod -a -G kvm $USER
-# Log out and log back in for changes to take effect
+
+# Log out and log back in, or use:
+newgrp kvm
 ```
 
-### 3. Clone and Setup
-
+### 2. Run the Demo
 ```bash
-git clone <your-repo-url>
-cd fc-demo-5
+# Make script executable
 chmod +x script.sh
-```
 
-## Usage
-
-### Starting VMs
-
-Start 3 VMs (default):
-```bash
+# Start 3 VMs (default)
 ./script.sh
+
+# Or specify number of VMs
+./script.sh 5
 ```
 
-Start a specific number of VMs:
+### 3. Check Status
 ```bash
-./script.sh 5  # Start 5 VMs
-```
-
-### Managing VMs
-
-Check VM status:
-```bash
+# Check if VMs are running
 ./script.sh status
+
+# View VM logs
+tail -f logs/firecracker-1.log
 ```
 
-Stop all VMs:
+### 4. Stop VMs
 ```bash
 ./script.sh stop
 ```
 
-Restart all VMs:
-```bash
-./script.sh restart
-```
+## Script Commands
 
-Show help:
-```bash
-./script.sh help
+| Command | Description | Example |
+|---------|-------------|---------|
+| `start` | Start VMs (default) | `./script.sh` or `./script.sh 5` |
+| `stop` | Stop all VMs | `./script.sh stop` |
+| `status` | Check VM status | `./script.sh status` |
+| `restart` | Restart all VMs | `./script.sh restart` |
+| `help` | Show usage info | `./script.sh help` |
+
+## What the Script Does
+
+### Automatic Setup
+1. **Dependency Check**: Installs curl, wget, jq if missing
+2. **Firecracker Installation**: Downloads v1.4.1 binaries automatically
+3. **Asset Download**: Gets Linux kernel and rootfs images
+4. **Directory Structure**: Creates organized folder structure
+5. **Network Configuration**: Sets up TAP interfaces and routing
+
+### VM Configuration
+Each VM is configured with:
+- **CPU**: 1 vCPU
+- **Memory**: 128MB RAM
+- **Network**: Unique TAP interface with MAC address
+- **Storage**: Individual ext4 root filesystem (50MB)
+- **Kernel**: Shared Linux kernel image
+
+### Network Architecture
+```
+Host (172.16.0.1)
+├── VM1 (172.16.0.2) - tap1
+├── VM2 (172.16.0.3) - tap2
+└── VM3 (172.16.0.4) - tap3
 ```
 
 ## Project Structure
 
 ```
 fc-demo-5/
-├── script.sh           # Main script
-├── README.md          # This file
-├── bin/               # Firecracker binaries (created by script)
-├── vms/               # VM configurations and data
+├── script.sh              # Main orchestration script
+├── README.md              # This documentation
+├── bin/                   # Firecracker binaries (auto-created)
+│   ├── firecracker        # Main VMM binary
+│   └── jailer             # Security sandbox tool
+├── vms/                   # VM instances (auto-created)
 │   ├── vm-1/
+│   │   ├── config.json    # VM configuration
+│   │   ├── rootfs.ext4    # Individual filesystem
+│   │   └── firecracker.pid # Process ID file
 │   ├── vm-2/
 │   └── vm-3/
-├── logs/              # VM logs
-├── sockets/           # API sockets for VM communication
-├── vmlinux            # Linux kernel (downloaded automatically)
-└── rootfs.ext4        # Root filesystem (downloaded automatically)
+├── logs/                  # VM output logs (auto-created)
+│   ├── firecracker-1.log
+│   ├── firecracker-2.log
+│   └── firecracker-3.log
+├── sockets/               # API communication (auto-created)
+│   ├── firecracker-1.socket
+│   ├── firecracker-2.socket
+│   └── firecracker-3.socket
+├── vmlinux                # Linux kernel (auto-downloaded)
+└── rootfs.ext4            # Base root filesystem (auto-downloaded)
 ```
 
-## What the Script Does
+## VM Management
 
-1. **Prerequisites Check**: Verifies system requirements and installs missing tools
-2. **Firecracker Installation**: Downloads and installs Firecracker binaries locally
-3. **Asset Download**: Downloads Linux kernel and root filesystem images
-4. **Network Setup**: Creates TAP interfaces for VM networking
-5. **VM Creation**: Configures and starts multiple Firecracker VMs
-6. **Management**: Provides commands to start, stop, and monitor VMs
+### Monitoring VMs
+```bash
+# Check all VM processes
+ps aux | grep firecracker
 
-## VM Configuration
+# Monitor system resources
+htop
 
-Each VM is configured with:
-- **CPU**: 1 vCPU
-- **Memory**: 128MB RAM
-- **Network**: TAP interface with unique MAC address
-- **Storage**: Individual ext4 root filesystem
-- **Kernel**: Shared Linux kernel image
+# Check network interfaces
+ip link show | grep tap
 
-## Networking
+# View VM configurations
+cat vms/vm-1/config.json | jq .
+```
 
-- Each VM gets a TAP interface (`tap1`, `tap2`, etc.)
-- VMs are on the `172.16.0.0/24` network
-- Host acts as gateway at `172.16.0.1`
-- NAT is configured for internet access
+### Individual VM Control
+```bash
+# Start specific VM manually
+./bin/firecracker --api-sock sockets/firecracker-1.socket --config-file vms/vm-1/config.json
+
+# Check VM via API
+curl --unix-socket sockets/firecracker-1.socket \
+     -X GET http://localhost/
+
+# Get VM info
+curl --unix-socket sockets/firecracker-1.socket \
+     -X GET http://localhost/machine-config
+```
 
 ## Troubleshooting
 
+### Quick Fix for Kernel Loading Issues
+
+If you're getting `KernelLoader(Elf(ReadElfHeader))` errors:
+
+```bash
+# Run the troubleshooting script
+chmod +x troubleshoot.sh
+./troubleshoot.sh fix
+
+# Or manually clean and retry
+./script.sh clean
+./script.sh
+```
+
 ### Common Issues
 
-1. **KVM not accessible**:
-   ```bash
-   ls -la /dev/kvm
-   # Should show: crw-rw---- 1 root kvm
-   ```
-
-2. **Permission denied on /dev/kvm**:
-   ```bash
-   sudo usermod -a -G kvm $USER
-   # Then log out and log back in
-   ```
-
-3. **Firecracker fails to start**:
-   - Check logs in `logs/firecracker-X.log`
-   - Ensure no other process is using the socket
-   - Verify VM configuration in `vms/vm-X/config.json`
-
-4. **Network issues**:
-   ```bash
-   # Check TAP interfaces
-   ip link show | grep tap
-   
-   # Check iptables rules
-   sudo iptables -t nat -L
-   ```
-
-### Useful Commands
-
-Monitor VM processes:
+#### 1. Permission Denied on /dev/kvm
 ```bash
-ps aux | grep firecracker
+# Check current permissions
+ls -la /dev/kvm
+
+# Should show: crw-rw---- 1 root kvm
+
+# Fix: Add user to kvm group
+sudo usermod -a -G kvm $USER
+# Then logout/login
 ```
 
-Check VM logs:
+#### 2. Firecracker Won't Start - Kernel Loading Error
 ```bash
-tail -f logs/firecracker-1.log
+# Check if kernel file is corrupted
+file vmlinux
+# Should show: ELF 64-bit LSB executable
+
+# If corrupted, clean and re-download
+./script.sh clean
+./script.sh
+
+# Or use troubleshooting script
+./troubleshoot.sh check
 ```
 
-Test VM connectivity (once running):
+#### 3. Network Issues
 ```bash
-ping 172.16.0.2  # VM 1
-ping 172.16.0.3  # VM 2
+# Check TAP interfaces
+ip addr show | grep tap
+
+# Verify IP forwarding
+cat /proc/sys/net/ipv4/ip_forward
+# Should show: 1
+
+# Check iptables rules
+sudo iptables -t nat -L POSTROUTING
+sudo iptables -L FORWARD
 ```
 
-## Next Steps
+#### 4. VM Boot Failures
+```bash
+# Check VM configuration
+jq . vms/vm-1/config.json
 
-This is Part 1 of a 3-part demo:
-- **Part 1**: ✅ Spin up 3 Firecracker VMs
-- **Part 2**: Install Deno programs in each VM
-- **Part 3**: HTTP communication between host and VMs
+# Verify kernel and rootfs exist
+ls -la vmlinux rootfs.ext4
 
-## Resources
+# Check boot args in logs
+grep "boot_args" logs/firecracker-1.log
+```
+
+### Troubleshooting Tools
+
+Use the troubleshooting script for detailed diagnostics:
+
+```bash
+# Check system and assets
+./troubleshoot.sh check
+
+# Download fresh assets
+./troubleshoot.sh download
+
+# Run comprehensive fix
+./troubleshoot.sh fix
+```
+
+### Reset Everything
+```bash
+# Stop all VMs and clean up
+./script.sh stop
+
+# Remove all generated files
+rm -rf bin/ vms/ logs/ sockets/ vmlinux rootfs.ext4
+
+# Start fresh
+./script.sh
+```
+
+## Advanced Usage
+
+### Custom Kernel/Rootfs
+```bash
+# Use custom kernel
+KERNEL_PATH="/path/to/custom/vmlinux" ./script.sh
+
+# Use custom rootfs
+ROOTFS_PATH="/path/to/custom/rootfs.ext4" ./script.sh
+```
+
+### Resource Customization
+Edit the script to modify:
+- `mem_size_mib`: VM memory (currently 128MB)
+- `vcpu_count`: CPU cores (currently 1)
+- Network configuration
+- Storage size
+
+## Demo Series Roadmap
+
+- **Part 1**: ✅ Multi-VM Firecracker Setup
+- **Part 2**: 🔄 Deno Applications in VMs
+- **Part 3**: 🔄 HTTP Communication & Load Balancing
+
+## Performance Notes
+
+### Resource Usage (per VM)
+- **Memory**: ~133MB (128MB + overhead)
+- **CPU**: Minimal when idle
+- **Storage**: ~50MB per VM
+- **Boot time**: ~150ms
+
+### Scaling Considerations
+- Test system can handle 10-20 VMs comfortably
+- Production setups can run 1000+ VMs per host
+- Memory is the primary constraint
+- Network TAP interfaces have kernel limits
+
+## References
 
 - [Firecracker Documentation](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
-- [Firecracker API Reference](https://github.com/firecracker-microvm/firecracker/blob/main/src/api_server/swagger/firecracker.yaml)
-- [AWS Firecracker](https://firecracker-microvm.github.io/)
+- [Firecracker API Specification](https://github.com/firecracker-microvm/firecracker/blob/main/src/api_server/swagger/firecracker.yaml)
+- [AWS Firecracker Homepage](https://firecracker-microvm.github.io/)
+- [KVM Documentation](https://www.linux-kvm.org/)
+
+## Contributing
+
+This is an educational project. Feel free to:
+- Report issues
+- Suggest improvements
+- Add new features
+- Create additional demo parts
 
 ## License
 
-This project is for educational purposes. Firecracker is licensed under Apache 2.0.
+Educational use. Firecracker is Apache 2.0 licensed.
+
+---
+
+**Next**: Once Part 1 is working, we'll add Deno applications to each VM in Part 2!
