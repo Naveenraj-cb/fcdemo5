@@ -251,6 +251,12 @@ create_vm_config() {
     local config_path="$vm_dir/config.json"
     local vm_rootfs="$vm_dir/rootfs.ext4"
     
+    # Debug: Check if vm_dir exists
+    if [[ ! -d "$vm_dir" ]]; then
+        log_error "VM directory does not exist: $vm_dir"
+        return 1
+    fi
+    
     # Copy rootfs only if it doesn't exist or is different
     if [[ ! -f "$vm_rootfs" ]] || [[ "$DEFAULT_ROOTFS_PATH" -nt "$vm_rootfs" ]]; then
         log_info "Creating rootfs for VM $vm_id..."
@@ -260,6 +266,7 @@ create_vm_config() {
     fi
     
     # Create VM configuration
+    log_info "Creating config file: $config_path"
     cat > "$config_path" << EOF
 {
   "boot-source": {
@@ -288,6 +295,19 @@ create_vm_config() {
 }
 EOF
     
+    # Debug: Verify config file was created
+    if [[ ! -f "$config_path" ]]; then
+        log_error "Failed to create config file: $config_path"
+        return 1
+    fi
+    
+    # Debug: Check config file content
+    if [[ ! -s "$config_path" ]]; then
+        log_error "Config file is empty: $config_path"
+        return 1
+    fi
+    
+    log_info "Config created: $config_path ($(wc -l < "$config_path") lines)"
     echo "$config_path"
 }
 
@@ -331,9 +351,27 @@ start_vm() {
     local vm_dir="vms/vm-$vm_id"
     local socket_path="sockets/firecracker-$vm_id.socket"
     local log_path="logs/firecracker-$vm_id.log"
-    local config_path=$(create_vm_config $vm_id)
     
     log_info "Starting VM $vm_id..."
+    
+    # Create VM configuration and get the path
+    local config_path
+    config_path=$(create_vm_config $vm_id)
+    local config_result=$?
+    
+    # Check if config creation failed
+    if [[ $config_result -ne 0 ]] || [[ -z "$config_path" ]]; then
+        log_error "Failed to create VM configuration for VM $vm_id"
+        return 1
+    fi
+    
+    # Debug: Verify config file was created
+    if [[ ! -f "$config_path" ]]; then
+        log_error "Config file not created: $config_path"
+        return 1
+    fi
+    
+    log_info "Using config: $config_path"
     
     # Setup networking
     setup_vm_network $vm_id
