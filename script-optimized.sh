@@ -434,69 +434,94 @@ start_all_vms() {
     fi
 }
 
-# Stop all VMs
+# Stop all VMs (improved to find actual VMs)
 stop_all_vms() {
     log_info "Stopping all VMs..."
     
-    for i in $(seq 1 $VM_COUNT); do
-        local vm_dir="vms/vm-$i"
-        local pid_file="$vm_dir/firecracker.pid"
-        
-        if [[ -f "$pid_file" ]]; then
-            local pid=$(cat "$pid_file")
-            if kill -0 $pid 2>/dev/null; then
-                log_info "Stopping VM $i (PID: $pid)"
-                kill $pid
-                sleep 1
-                # Force kill if still running
-                if kill -0 $pid 2>/dev/null; then
-                    kill -9 $pid
+    local stopped_count=0
+    
+    if [[ -d "vms" ]]; then
+        for vm_dir in vms/vm-*; do
+            if [[ -d "$vm_dir" ]]; then
+                local vm_id=$(basename "$vm_dir" | sed 's/vm-//')
+                local pid_file="$vm_dir/firecracker.pid"
+                
+                if [[ -f "$pid_file" ]]; then
+                    local pid=$(cat "$pid_file")
+                    if kill -0 $pid 2>/dev/null; then
+                        log_info "Stopping VM $vm_id (PID: $pid)"
+                        kill $pid
+                        sleep 1
+                        # Force kill if still running
+                        if kill -0 $pid 2>/dev/null; then
+                            kill -9 $pid
+                        fi
+                        stopped_count=$((stopped_count + 1))
+                    fi
+                    rm -f "$pid_file"
+                fi
+                
+                # Clean up tap interface
+                local tap_name="tap$vm_id"
+                if ip link show "$tap_name" &>/dev/null; then
+                    sudo ip link del "$tap_name" 2>/dev/null || true
                 fi
             fi
-            rm -f "$pid_file"
-        fi
-        
-        # Clean up tap interface
-        local tap_name="tap$i"
-        if ip link show "$tap_name" &>/dev/null; then
-            sudo ip link del "$tap_name"
-        fi
-    done
+        done
+    fi
     
-    log_info "All VMs stopped and cleaned up"
+    # Clean up iptables rules (basic cleanup)
+    sudo iptables -t nat -F POSTROUTING 2>/dev/null || true
+    sudo iptables -F FORWARD 2>/dev/null || true
+    
+    if [[ $stopped_count -gt 0 ]]; then
+        log_info "Stopped $stopped_count VM(s) and cleaned up networking"
+    else
+        log_info "No running VMs found to stop"
+    fi
 }
 
 # Check VM status
 check_vm_status() {
-    log_info "VM Status Report:"
-    echo "=================================="
-    
     local running_count=0
+    local total_vms=0
     
-    for i in $(seq 1 $VM_COUNT); do
-        local vm_dir="vms/vm-$i"
-        local pid_file="$vm_dir/firecracker.pid"
-        local socket_path="sockets/firecracker-$i.socket"
-        
-        if [[ -f "$pid_file" ]]; then
-            local pid=$(cat "$pid_file")
-            if kill -0 $pid 2>/dev/null; then
-                if [[ -S "$socket_path" ]]; then
-                    echo "VM $i: ✅ Running (PID: $pid)"
-                    ((running_count++))
+    if [[ -d "vms" ]]; then
+        for vm_dir in vms/vm-*; do
+            if [[ -d "$vm_dir" ]]; then
+                local vm_id=$(basename "$vm_dir" | sed 's/vm-//')
+                local pid_file="$vm_dir/firecracker.pid"
+                local socket_path="sockets/firecracker-$vm_id.socket"
+                
+                total_vms=$((total_vms + 1))
+                
+                if [[ -f "$pid_file" ]]; then
+                    local pid=$(cat "$pid_file")
+                    if kill -0 $pid 2>/dev/null; then
+                        if [[ -S "$socket_path" ]]; then
+                            echo "VM $vm_id: ✅ Running (PID: $pid)"
+                            running_count=$((running_count + 1))
+                        else
+                            echo "VM $vm_id: ⚠️  Running but no socket (PID: $pid)"
+                            running_count=$((running_count + 1))
+                        fi
+                    else
+                        echo "VM $vm_id: ❌ Not running (stale PID file)"
+                        rm -f "$pid_file"  # Clean up stale PID file
+                    fi
                 else
-                    echo "VM $i: ⚠️  Running but no socket (PID: $pid)"
+                    echo "VM $vm_id: ❌ Not running"
                 fi
-            else
-                echo "VM $i: ❌ Not running (stale PID file)"
             fi
-        else
-            echo "VM $i: ❌ Not running"
-        fi
-    done
+        done
+    fi
     
     echo "=================================="
-    echo "Running: $running_count/$VM_COUNT VMs"
+    if [[ $total_vms -eq 0 ]]; then
+        echo "No VMs found. Use './script-optimized.sh' to start some VMs."
+    else
+        echo "Running: $running_count/$total_vms VMs"
+    fi
 }
 
 # Clean assets and directories
@@ -559,18 +584,18 @@ main() {
             start_all_vms
             ;;
         "stop")
-            log_info "Stopping all VMs..."
             stop_all_vms
             ;;
         "status")
-            log_info "VM Status Report:"
+            echo "🔍 VM Status Report"
             echo "=================================="
             check_vm_status
             ;;
         "restart")
-            log_info "Restarting VMs..."
             stop_all_vms
             sleep 2
+            echo "🔄 Restarting VMs..."
+            echo "=============================="
             check_root
             check_prerequisites
             setup_directories
@@ -578,7 +603,6 @@ main() {
             start_all_vms
             ;;
         "clean")
-            log_info "Cleaning up..."
             clean_assets
             ;;
         "help"|"-h"|"--help")
@@ -617,9 +641,6 @@ usage() {
     echo "  $0 clean          # Remove all downloaded files"
     echo ""
 }
-
-# Trap to cleanup on exit
-trap 'stop_all_vms' EXIT
 
 # Run main function
 main "$@"
