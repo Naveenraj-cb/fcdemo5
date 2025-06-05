@@ -361,13 +361,13 @@ start_vm() {
     
     # Check if config creation failed
     if [[ $config_result -ne 0 ]] || [[ -z "$config_path" ]]; then
-        log_error "Failed to create VM configuration for VM $vm_id"
+        log_error "Failed to create VM configuration for VM $vm_id" >&2
         return 1
     fi
     
     # Debug: Verify config file was created
     if [[ ! -f "$config_path" ]]; then
-        log_error "Config file not created: $config_path"
+        log_error "Config file not created: $config_path" >&2
         return 1
     fi
     
@@ -388,15 +388,15 @@ start_vm() {
     
     # Check if firecracker is still running
     if ! kill -0 $fc_pid 2>/dev/null; then
-        log_error "Failed to start VM $vm_id"
-        log_error "Error log:"
-        tail -10 "$log_path"
+        log_error "Failed to start VM $vm_id" >&2
+        log_error "Error log:" >&2
+        tail -10 "$log_path" >&2
         return 1
     fi
     
     # Verify socket creation
     if [[ ! -S "$socket_path" ]]; then
-        log_error "VM $vm_id started but socket not created"
+        log_error "VM $vm_id started but socket not created" >&2
         return 1
     fi
     

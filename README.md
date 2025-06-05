@@ -93,13 +93,28 @@ newgrp kvm
 # Check if VMs are running
 ./script-optimized.sh status
 
-# View VM logs
+# View VM logs (helpful for troubleshooting)
 tail -f logs/firecracker-1.log
+tail logs/firecracker-*.log  # View all VM logs
+
+# Check processes
+ps aux | grep firecracker
 ```
 
 ### 4. Stop VMs
 ```bash
 ./script-optimized.sh stop
+```
+
+### 5. Common Workflow
+```bash
+# Complete workflow example
+./script-optimized.sh 3         # Start 3 VMs
+./script-optimized.sh status     # Check they're running
+./script-optimized.sh stop       # Stop when done
+
+# Quick restart
+./script-optimized.sh restart    # Stop and start again
 ```
 
 ## Script Commands
